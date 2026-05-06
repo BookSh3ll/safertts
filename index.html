@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SaferTTS</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink: #1a1a18;
+  --paper: #f5f2eb;
+  --cream: #ede9df;
+  --mid: #c8c2b4;
+  --muted: #8a8478;
+  --accent: #c84b2f;
+  --accent-light: #f0d5ce;
+  --success: #2d6a4f;
+  --success-light: #d4eddf;
+  --border: 1.5px solid var(--ink);
+  --radius: 4px;
+  --font-display: 'DM Serif Display', Georgia, serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+}
+
+body { background: var(--paper); color: var(--ink); font-family: var(--font-body); min-height: 100vh; display: flex; flex-direction: column; }
+
+header { border-bottom: var(--border); padding: 1rem 2rem; display: flex; align-items: baseline; gap: 1rem; background: var(--paper); position: sticky; top: 0; z-index: 10; }
+.logo { font-family: var(--font-display); font-size: 1.6rem; letter-spacing: -0.02em; }
+.logo span { color: var(--accent); font-style: italic; }
+.tagline { font-size: 0.7rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; }
+
+main { flex: 1; max-width: 900px; width: 100%; margin: 0 auto; padding: 2rem; display: flex; flex-direction: column; gap: 1rem; }
+
+/* ── Collapsible ── */
+.collapsible { border: var(--border); border-radius: var(--radius); background: var(--paper); overflow: hidden; }
+.coll-header { padding: 0.6rem 1rem; display: flex; align-items: center; justify-content: space-between; background: var(--cream); cursor: pointer; user-select: none; border-bottom: 1.5px solid transparent; transition: border-color 0.2s; }
+.collapsible.open .coll-header { border-bottom: var(--border); }
+.coll-title { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.coll-arrow { font-size: 0.6rem; color: var(--muted); transition: transform 0.25s ease; display: inline-block; }
+.collapsible.open .coll-arrow { transform: rotate(180deg); }
+.coll-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.28s ease; }
+.collapsible.open .coll-body { grid-template-rows: 1fr; }
+.coll-inner { overflow: hidden; }
+
+/* ── Text panel ── */
+.text-panel { border: var(--border); border-radius: var(--radius); background: var(--paper); overflow: hidden; display: flex; flex-direction: column; }
+.panel-header { padding: 0.6rem 1rem; border-bottom: var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--cream); flex-shrink: 0; }
+.panel-label { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.char-count { font-family: var(--font-mono); font-size: 0.68rem; color: var(--muted); }
+
+textarea { width: 100%; min-height: 400px; resize: vertical; border: none; background: transparent; font-family: var(--font-body); font-size: 1rem; line-height: 1.75; color: var(--ink); padding: 1.25rem; outline: none; }
+textarea::placeholder { color: var(--mid); font-style: italic; }
+
+/* ── OCR zone ── */
+.img-dropzone { margin: 0 1.25rem 0.6rem; border: 1.5px dashed var(--mid); border-radius: var(--radius); padding: 0.7rem 1rem; text-align: center; font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted); letter-spacing: 0.04em; cursor: pointer; transition: border-color 0.2s, background 0.2s; position: relative; }
+.img-dropzone:hover, .img-dropzone.drag-over { border-color: var(--ink); background: var(--cream); }
+.img-dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+
+.ocr-preview { margin: 0 1.25rem 0.75rem; display: none; gap: 0.75rem; align-items: center; }
+.ocr-preview.visible { display: flex; }
+.ocr-thumb { width: 56px; height: 40px; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--mid); flex-shrink: 0; }
+.ocr-info { flex: 1; font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.04em; }
+.ocr-progress { height: 3px; background: var(--mid); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.ocr-progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+
+.text-actions { padding: 0.75rem 1rem; border-top: 1px solid var(--cream); display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+
+/* ── Buttons ── */
+button { font-family: var(--font-body); font-size: 0.8rem; font-weight: 500; cursor: pointer; border-radius: var(--radius); transition: all 0.15s ease; border: 1.5px solid var(--ink); padding: 0.45rem 1rem; background: transparent; color: var(--ink); letter-spacing: 0.01em; display: inline-flex; align-items: center; gap: 0.4rem; }
+button:hover { background: var(--cream); }
+button:active { transform: scale(0.97); }
+button.primary { background: var(--ink); color: var(--paper); padding: 0.55rem 1.4rem; font-size: 0.85rem; }
+button.primary:hover { background: #2e2e2a; }
+button.danger { border-color: var(--accent); color: var(--accent); }
+button.danger:hover { background: var(--accent-light); }
+button.success-btn { border-color: var(--success); color: var(--success); }
+button.success-btn:hover { background: var(--success-light); }
+button:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+/* Enter key badge on speak button */
+.kbd { display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; padding: 0 4px; font-family: var(--font-mono); font-size: 0.6rem; line-height: 1.6; letter-spacing: 0; color: rgba(255,255,255,0.8); }
+
+/* ── Toggle switches ── */
+.toggle-row { display: flex; align-items: center; gap: 0.6rem; cursor: pointer; user-select: none; }
+.toggle-row input[type=checkbox] { display: none; }
+.toggle-track { width: 32px; height: 18px; border-radius: 9px; background: var(--mid); border: 1.5px solid var(--mid); position: relative; transition: background 0.2s, border-color 0.2s; flex-shrink: 0; cursor: pointer; }
+.toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: white; transition: transform 0.2s; }
+.toggle-row input:checked + .toggle-track { background: var(--ink); border-color: var(--ink); }
+.toggle-row input:checked + .toggle-track::after { transform: translateX(14px); }
+.toggle-label { font-family: var(--font-mono); font-size: 0.63rem; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
+.toggle-row input:checked ~ .toggle-label { color: var(--ink); }
+
+/* ── Playback bar ── */
+.playback-bar { border: var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; background: var(--paper); display: flex; flex-direction: column; gap: 0.75rem; }
+.playback-top { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.playback-toggles { display: flex; flex-direction: column; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--cream); }
+
+.status-bar { padding: 0.45rem 0.75rem; border-radius: var(--radius); font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.04em; background: var(--cream); color: var(--muted); border: 1px solid var(--mid); display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; margin-left: auto; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--mid); flex-shrink: 0; transition: background 0.2s; }
+.status-bar.speaking .status-dot { background: var(--accent); animation: pulse 1s infinite; }
+.status-bar.paused .status-dot { background: #e0a000; }
+.status-bar.done .status-dot { background: var(--success); }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+
+.progress-wrap { height: 3px; background: var(--mid); border-radius: 2px; overflow: hidden; }
+.progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s linear; border-radius: 2px; }
+
+/* ── Voice settings ── */
+.voice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem 1.25rem; padding: 1rem 1.25rem; }
+.slider-group { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 0.85rem; }
+.voice-footer { grid-column: 1/-1; display: flex; align-items: center; gap: 0.75rem; padding-top: 0.25rem; border-top: 1px solid var(--cream); margin-top: 0.15rem; }
+.saved-badge { font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--success); opacity: 0; transition: opacity 0.3s; }
+.saved-badge.show { opacity: 1; }
+
+label.field-label { font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: block; margin-bottom: 0.3rem; }
+
+select { width: 100%; padding: 0.5rem 0.75rem; border: 1.5px solid var(--mid); border-radius: var(--radius); background: var(--paper); font-family: var(--font-body); font-size: 0.82rem; color: var(--ink); appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238a8478' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; cursor: pointer; }
+select:focus { outline: none; border-color: var(--ink); }
+
+.slider-row { display: flex; align-items: center; gap: 0.75rem; }
+.slider-label { font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); min-width: 48px; }
+input[type="range"] { flex: 1; -webkit-appearance: none; height: 3px; background: var(--mid); border-radius: 2px; cursor: pointer; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); border: 2px solid var(--paper); box-shadow: 0 0 0 1.5px var(--ink); cursor: grab; }
+input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
+.slider-val { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); min-width: 36px; text-align: right; }
+
+@media (max-width: 620px) {
+  main { padding: 1rem; }
+  header { padding: 0.85rem 1rem; }
+  .voice-grid { grid-template-columns: 1fr; }
+  .playback-top { flex-wrap: wrap; }
+  .status-bar { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span>Safe</span>r</div>
+  <div class="tagline">Browser Based TTS</div>
+</header>
+
+<main>
+
+  <!-- Text Input -->
+  <div class="text-panel">
+    <div class="panel-header">
+      <span class="panel-label">Text Input</span>
+      <span class="char-count" id="charCount">0 chars</span>
+    </div>
+    <textarea id="textInput" placeholder="Paste or type your text here…" spellcheck="false"></textarea>
+
+    <div class="img-dropzone" id="dropzone">
+      <input type="file" accept="image/*" id="imgFileInput" onchange="handleImageFile(this.files[0])">
+      📷 Click to upload image, paste (Ctrl+V / Cmd+V), or drag &amp; drop — OCR extracts text automatically
+    </div>
+
+    <div class="ocr-preview" id="ocrPreview">
+      <img class="ocr-thumb" id="ocrThumb" src="" alt="OCR source">
+      <div class="ocr-info">
+        <div id="ocrStatus">Processing…</div>
+        <div class="ocr-progress"><div class="ocr-progress-bar" id="ocrBar"></div></div>
+      </div>
+      <button onclick="cancelOcr()" class="danger" style="padding:0.3rem 0.6rem;font-size:0.75rem;flex-shrink:0;">✕</button>
+    </div>
+
+    <div class="text-actions">
+      <button onclick="pasteText()">📋 Paste Text</button>
+      <button onclick="clearText()" class="danger">Clear</button>
+      <button onclick="copyText()">Copy</button>
+    </div>
+  </div>
+
+  <!-- Playback bar -->
+  <div class="playback-bar">
+    <div class="playback-top">
+      <button class="primary" id="speakBtn" onclick="startSpeaking()">
+        ▶ Speak <span class="kbd">↵</span>
+      </button>
+      <button id="pauseBtn" onclick="togglePause()" disabled>⏸ Pause</button>
+      <button id="stopBtn" onclick="stopSpeaking()" disabled>⏹ Stop</button>
+      <div class="status-bar" id="statusBar">
+        <div class="status-dot"></div>
+        <span id="statusText">Ready</span>
+      </div>
+    </div>
+    <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="playback-toggles">
+      <label class="toggle-row">
+        <input type="checkbox" id="autoSpeakToggle" onchange="saveToggles()">
+        <span class="toggle-track"></span>
+        <span class="toggle-label">Speak text upon pasting image</span>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="clearOnPasteToggle" onchange="saveToggles()">
+        <span class="toggle-track"></span>
+        <span class="toggle-label">Clear text when pasting new image</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Voice Settings (collapsible) -->
+  <div class="collapsible open" id="voicePanel">
+    <div class="coll-header" onclick="togglePanel('voicePanel')">
+      <span class="coll-title">Voice Settings</span>
+      <span class="coll-arrow">▼</span>
+    </div>
+    <div class="coll-body">
+      <div class="coll-inner">
+        <div class="voice-grid">
+          <div>
+            <label class="field-label">Language</label>
+            <select id="langSelect" onchange="filterVoices()"></select>
+          </div>
+          <div>
+            <label class="field-label">Voice</label>
+            <select id="voiceSelect"></select>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Rate</span>
+              <input type="range" id="rateSlider" min="0.5" max="2" step="0.1" value="1" oninput="updateSlider('rate',this.value)">
+              <span class="slider-val" id="rateVal">1.0×</span>
+            </div>
+            <div class="slider-row">
+              <span class="slider-label">Pitch</span>
+              <input type="range" id="pitchSlider" min="0.5" max="2" step="0.1" value="1" oninput="updateSlider('pitch',this.value)">
+              <span class="slider-val" id="pitchVal">1.0</span>
+            </div>
+            <div class="slider-row">
+              <span class="slider-label">Volume</span>
+              <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" oninput="updateSlider('volume',this.value)">
+              <span class="slider-val" id="volumeVal">100%</span>
+            </div>
+          </div>
+          <div class="voice-footer">
+            <button class="success-btn" onclick="saveDefaults()">💾 Save as Default</button>
+            <span class="saved-badge" id="savedBadge">Saved!</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── Panel toggle ──
+function togglePanel(id) { document.getElementById(id).classList.toggle('open'); }
+
+// ── Speech synthesis ──
+const synth = window.speechSynthesis;
+let voices = [], utterance = null, isPaused = false, langMap = {};
+let wordCount = 0, wordIndex = 0;
+
+const textInput     = document.getElementById('textInput');
+const langSelect    = document.getElementById('langSelect');
+const voiceSelect   = document.getElementById('voiceSelect');
+const rateSlider    = document.getElementById('rateSlider');
+const pitchSlider   = document.getElementById('pitchSlider');
+const volumeSlider  = document.getElementById('volumeSlider');
+const speakBtn      = document.getElementById('speakBtn');
+const pauseBtn      = document.getElementById('pauseBtn');
+const stopBtn       = document.getElementById('stopBtn');
+const statusBar     = document.getElementById('statusBar');
+const statusText    = document.getElementById('statusText');
+const progressBar   = document.getElementById('progressBar');
+const charCount     = document.getElementById('charCount');
+const autoSpeakToggle    = document.getElementById('autoSpeakToggle');
+const clearOnPasteToggle = document.getElementById('clearOnPasteToggle');
+
+if (!synth) {
+  document.querySelector('main').innerHTML = '<p style="padding:2rem;color:var(--muted);font-style:italic;">Web Speech API not supported. Try Chrome or Edge.</p>';
+}
+
+// ── Enter key → Speak (unless focus is in textarea) ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement !== textInput && !e.repeat) {
+    e.preventDefault();
+    if (!speakBtn.disabled) startSpeaking();
+  }
+});
+
+// ── Voices ──
+function loadVoices() {
+  voices = synth.getVoices();
+  if (!voices.length) return;
+  langMap = {};
+  voices.forEach(v => {
+    if (!langMap[v.lang]) langMap[v.lang] = { voices: [], label: getLangLabel(v) };
+    langMap[v.lang].voices.push(v);
+  });
+  const savedLang = (JSON.parse(localStorage.getItem('tts_defaults') || '{}')).lang;
+  const sorted = Object.keys(langMap).sort((a, b) => langMap[a].label.localeCompare(langMap[b].label));
+  langSelect.innerHTML = '';
+  sorted.forEach(lang => {
+    const opt = document.createElement('option');
+    opt.value = lang;
+    opt.textContent = langMap[lang].label + ' (' + lang + ')';
+    if (lang === (savedLang || 'en-US')) opt.selected = true;
+    langSelect.appendChild(opt);
+  });
+  filterVoices(true);
+}
+
+function getLangLabel(voice) {
+  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(voice.lang.split('-')[0]) || voice.lang; }
+  catch { return voice.lang; }
+}
+
+function filterVoices(init) {
+  const lang = langSelect.value;
+  const savedVoice = (JSON.parse(localStorage.getItem('tts_defaults') || '{}')).voiceName;
+  voiceSelect.innerHTML = '';
+  const langVoices = (langMap[lang] || {}).voices || [];
+  if (!langVoices.length) { voiceSelect.innerHTML = '<option>No voices available</option>'; return; }
+  langVoices.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v.name;
+    opt.textContent = v.name + (v.default ? ' ★' : '');
+    if (init && v.name === savedVoice) opt.selected = true;
+    voiceSelect.appendChild(opt);
+  });
+}
+
+synth.onvoiceschanged = loadVoices;
+loadVoices();
+setTimeout(loadVoices, 500);
+
+// ── Char count ──
+textInput.addEventListener('input', () => {
+  const len = textInput.value.length;
+  charCount.textContent = len + ' char' + (len !== 1 ? 's' : '');
+});
+
+function updateSlider(type, val) {
+  const v = parseFloat(val);
+  if (type === 'rate')   document.getElementById('rateVal').textContent   = v.toFixed(1) + '×';
+  else if (type === 'pitch')  document.getElementById('pitchVal').textContent  = v.toFixed(1);
+  else                        document.getElementById('volumeVal').textContent = Math.round(v * 100) + '%';
+}
+
+// ── Text paste ──
+async function pasteText() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) return;
+    if (clearOnPasteToggle.checked) { stopSpeaking(); textInput.value = ''; }
+    textInput.value += text;
+    textInput.dispatchEvent(new Event('input'));
+    if (autoSpeakToggle.checked) startSpeaking();
+  } catch {
+    textInput.focus();
+    setStatus('Use Ctrl+V / Cmd+V in the text box', '');
+  }
+}
+
+function clearText() { textInput.value = ''; charCount.textContent = '0 chars'; stopSpeaking(); }
+
+function copyText() {
+  navigator.clipboard.writeText(textInput.value).then(() => {
+    setStatus('Copied to clipboard!', 'done');
+    setTimeout(() => setStatus('Ready', ''), 2000);
+  });
+}
+
+function setStatus(msg, state) {
+  statusText.textContent = msg;
+  statusBar.className = 'status-bar' + (state ? ' ' + state : '');
+}
+
+// ── Speaking ──
+function startSpeaking() {
+  const text = textInput.value.trim();
+  if (!text) { setStatus('No text to speak.', ''); return; }
+  if (synth.speaking) synth.cancel();
+  const voice = voices.find(v => v.name === voiceSelect.value) || null;
+  utterance = new SpeechSynthesisUtterance(text);
+  utterance.voice  = voice;
+  utterance.lang   = langSelect.value;
+  utterance.rate   = parseFloat(rateSlider.value);
+  utterance.pitch  = parseFloat(pitchSlider.value);
+  utterance.volume = parseFloat(volumeSlider.value);
+  wordCount = text.split(/\s+/).length; wordIndex = 0;
+  utterance.onstart    = () => { setStatus('Speaking…', 'speaking'); speakBtn.disabled = true; pauseBtn.disabled = false; stopBtn.disabled = false; isPaused = false; progressBar.style.width = '0%'; };
+  utterance.onboundary = e => { if (e.name === 'word') { wordIndex++; progressBar.style.width = Math.min(100, Math.round(wordIndex / wordCount * 100)) + '%'; } };
+  utterance.onend      = () => { setStatus('Done', 'done'); speakBtn.disabled = false; pauseBtn.disabled = true; stopBtn.disabled = true; pauseBtn.textContent = '⏸ Pause'; progressBar.style.width = '100%'; setTimeout(() => { progressBar.style.width = '0%'; setStatus('Ready', ''); }, 2500); };
+  utterance.onerror    = e => { if (e.error === 'interrupted' || e.error === 'canceled') return; setStatus('Error: ' + e.error, ''); speakBtn.disabled = false; pauseBtn.disabled = true; stopBtn.disabled = true; };
+  synth.speak(utterance);
+}
+
+function togglePause() {
+  if (!synth.speaking) return;
+  if (isPaused) { synth.resume(); isPaused = false; pauseBtn.textContent = '⏸ Pause'; setStatus('Speaking…', 'speaking'); }
+  else          { synth.pause();  isPaused = true;  pauseBtn.textContent = '▶ Resume'; setStatus('Paused', 'paused'); }
+}
+
+function stopSpeaking() {
+  synth.cancel(); isPaused = false;
+  speakBtn.disabled = false; pauseBtn.disabled = true; pauseBtn.textContent = '⏸ Pause'; stopBtn.disabled = true;
+  progressBar.style.width = '0%'; setStatus('Ready', '');
+}
+
+// ── Defaults ──
+function saveDefaults() {
+  const prefs = { lang: langSelect.value, voiceName: voiceSelect.value, rate: rateSlider.value, pitch: pitchSlider.value, volume: volumeSlider.value };
+  const existing = JSON.parse(localStorage.getItem('tts_defaults') || '{}');
+  localStorage.setItem('tts_defaults', JSON.stringify({ ...existing, ...prefs }));
+  const badge = document.getElementById('savedBadge');
+  badge.classList.add('show');
+  setTimeout(() => badge.classList.remove('show'), 2000);
+}
+
+function saveToggles() {
+  const existing = JSON.parse(localStorage.getItem('tts_defaults') || '{}');
+  existing.autoSpeak    = autoSpeakToggle.checked;
+  existing.clearOnPaste = clearOnPasteToggle.checked;
+  localStorage.setItem('tts_defaults', JSON.stringify(existing));
+}
+
+function loadDefaults() {
+  const saved = JSON.parse(localStorage.getItem('tts_defaults') || 'null');
+  if (!saved) return;
+  if (saved.rate)   { rateSlider.value   = saved.rate;   updateSlider('rate',   saved.rate); }
+  if (saved.pitch)  { pitchSlider.value  = saved.pitch;  updateSlider('pitch',  saved.pitch); }
+  if (saved.volume) { volumeSlider.value = saved.volume; updateSlider('volume', saved.volume); }
+  if (saved.lang) {
+    const opt = langSelect.querySelector('option[value="' + saved.lang + '"]');
+    if (opt) { langSelect.value = saved.lang; filterVoices(); }
+  }
+  if (saved.voiceName) {
+    const opt = voiceSelect.querySelector('option[value="' + CSS.escape(saved.voiceName) + '"]');
+    if (opt) voiceSelect.value = saved.voiceName;
+  }
+  if (saved.autoSpeak    !== undefined) autoSpeakToggle.checked    = saved.autoSpeak;
+  if (saved.clearOnPaste !== undefined) clearOnPasteToggle.checked = saved.clearOnPaste;
+}
+
+loadDefaults();
+
+// ── OCR ──
+let ocrWorker = null, ocrAborted = false;
+
+const dropzone   = document.getElementById('dropzone');
+const ocrPreview = document.getElementById('ocrPreview');
+const ocrThumb   = document.getElementById('ocrThumb');
+const ocrStatus  = document.getElementById('ocrStatus');
+const ocrBar     = document.getElementById('ocrBar');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) handleImageFile(file);
+});
+
+// Global paste — image takes priority; text paste falls through to textarea naturally
+document.addEventListener('paste', e => {
+  const items = Array.from(e.clipboardData.items);
+  const imgItem = items.find(i => i.type.startsWith('image/'));
+  if (imgItem) {
+    e.preventDefault();
+    const blob = imgItem.getAsFile();
+    if (blob) handleImageFile(blob);
+    return;
+  }
+  // Text paste via Ctrl+V when not in textarea
+  if (document.activeElement !== textInput) {
+    const textItem = items.find(i => i.type === 'text/plain');
+    if (textItem) {
+      e.preventDefault();
+      textItem.getAsString(txt => {
+        if (!txt) return;
+        if (clearOnPasteToggle.checked) { stopSpeaking(); textInput.value = ''; }
+        textInput.value += txt;
+        textInput.dispatchEvent(new Event('input'));
+        if (autoSpeakToggle.checked) startSpeaking();
+      });
+    }
+  }
+});
+
+function handleImageFile(file) {
+  if (!file) return;
+  ocrAborted = false;
+  if (clearOnPasteToggle.checked) { stopSpeaking(); textInput.value = ''; textInput.dispatchEvent(new Event('input')); }
+  ocrThumb.src = URL.createObjectURL(file);
+  ocrPreview.classList.add('visible');
+  ocrStatus.textContent = 'Loading OCR engine…';
+  ocrBar.style.width = '0%';
+  runOCR(file);
+}
+
+async function runOCR(file) {
+  try {
+    if (ocrWorker) { try { await ocrWorker.terminate(); } catch {} ocrWorker = null; }
+    ocrWorker = await Tesseract.createWorker('eng', 1, {
+      logger: m => {
+        if (ocrAborted) return;
+        if (m.status === 'recognizing text') {
+          const pct = Math.round(m.progress * 100);
+          ocrBar.style.width = pct + '%';
+          ocrStatus.textContent = 'Recognizing… ' + pct + '%';
+        } else if (m.status) {
+          ocrStatus.textContent = m.status.charAt(0).toUpperCase() + m.status.slice(1) + '…';
+        }
+      }
+    });
+    if (ocrAborted) return;
+    const result = await ocrWorker.recognize(file);
+    if (ocrAborted) return;
+    const extracted = result.data.text.trim();
+    if (extracted) {
+      const sep = textInput.value ? '\n\n' : '';
+      textInput.value += sep + extracted;
+      textInput.dispatchEvent(new Event('input'));
+      ocrStatus.textContent = '✓ Extracted ' + extracted.length + ' chars';
+      ocrBar.style.width = '100%';
+      if (autoSpeakToggle.checked) startSpeaking();
+    } else {
+      ocrStatus.textContent = 'No text detected in image.';
+    }
+    await ocrWorker.terminate(); ocrWorker = null;
+  } catch (err) {
+    if (!ocrAborted) ocrStatus.textContent = 'OCR error: ' + err.message;
+  }
+}
+
+async function cancelOcr() {
+  ocrAborted = true;
+  if (ocrWorker) { try { await ocrWorker.terminate(); } catch {} ocrWorker = null; }
+  ocrPreview.classList.remove('visible');
+  ocrThumb.src = '';
+  document.getElementById('imgFileInput').value = '';
+}
+</script>
+</body>
+</html>
